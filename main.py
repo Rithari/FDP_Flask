@@ -1,49 +1,42 @@
-from flask import Flask
-from apscheduler.schedulers.background import BackgroundScheduler
-import nbformat
-from nbconvert.preprocessors import ExecutePreprocessor
-import os
+from flask import Flask, request, jsonify
+import papermill as pm
 import logging
 from logging.handlers import RotatingFileHandler
+import tempfile
 
-# Logging configuration
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-handler = RotatingFileHandler('app.log', maxBytes=10000, backupCount=3)
-logger.addHandler(handler)
-
+# Existing logging configuration...
 
 app = Flask(__name__)
 
-def run_notebook():
+@app.route('/stats', methods=['POST'])
+def run_stats_notebook():
     try:
-        notebook_path = '/path/to/your/notebook.ipynb'
+        # Retrieve data from POST request
+        stats_category = request.json['stats_category']
+        identifier = request.json['identifier']
         
-        with open(notebook_path) as f:
-            nb = nbformat.read(f, as_version=4)
-            ep = ExecutePreprocessor(timeout=600, kernel_name='python3')
-            ep.preprocess(nb)
+        # Define the input notebook path
+        input_nb_path = './statistics.ipynb'
 
-        logger.info("Successfully executed the notebook.")
+        # Use a temporary file for the output notebook. File is deleted automatically after the context manager exits.
+        with tempfile.NamedTemporaryFile(suffix='.ipynb') as temp_output:
+            output_nb_path = temp_output.name
+
+            # Execute the notebook with parameters
+            pm.execute_notebook(
+                input_nb_path,
+                output_nb_path,
+                parameters={
+                    'stats_category': stats_category,
+                    'identifier': identifier
+                }
+            )
+
+        logger.info("Successfully executed the notebook with parameters.")
+        return jsonify({"message": "Notebook executed successfully"})
     except Exception as e:
         logger.error(f"Error executing the notebook: {e}", exc_info=True)
-
-# Initialize the scheduler
-scheduler = BackgroundScheduler()
-scheduler.add_job(func=run_notebook, trigger='interval', hours=24) # Run every 24 hours
-scheduler.start()
-
-@app.before_first_request
-def initialize_scheduler():
-    if not scheduler.running:
-        scheduler.start()
-
-@app.route('/')
-def index():
-    return "Flask App with Scheduled Jupyter Notebook Execution"
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    try:
-        app.run(debug=True, port=5000)
-    except (KeyboardInterrupt, SystemExit):
-        scheduler.shutdown()
+    app.run(debug=True, port=5000)
