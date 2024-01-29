@@ -1,3 +1,7 @@
+# Statistics output
+outputs/*
+
+
 ### Flask ###
 instance/*
 !instance/.gitignore
