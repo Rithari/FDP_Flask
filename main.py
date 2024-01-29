@@ -4,8 +4,11 @@ import logging
 from logging.handlers import RotatingFileHandler
 import tempfile
 
-# Existing logging configuration...
-
+# Logging configuration
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+handler = RotatingFileHandler('app.log', maxBytes=10000, backupCount=3)
+logger.addHandler(handler)
 app = Flask(__name__)
 
 @app.route('/stats', methods=['POST'])
@@ -33,7 +36,7 @@ def run_stats_notebook():
             )
 
         logger.info("Successfully executed the notebook with parameters.")
-        return jsonify({"message": "Notebook executed successfully"})
+        return jsonify({"message": "Notebook executed successfully"}) # TODO: return the notebook's generated .svg file(s) in the response
     except Exception as e:
         logger.error(f"Error executing the notebook: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
