@@ -1,12 +1,14 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, after_this_request
 import papermill as pm
 import logging
 from logging.handlers import RotatingFileHandler
+from apscheduler.schedulers.background import BackgroundScheduler
 import tempfile
 import os
 import glob
-from apscheduler.schedulers.background import BackgroundScheduler
 import shutil
+import zipfile
+from flask_cors import CORS
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO)
@@ -14,6 +16,9 @@ logger = logging.getLogger(__name__)
 handler = RotatingFileHandler("app.log", maxBytes=10000, backupCount=3)
 logger.addHandler(handler)
 app = Flask(__name__)
+
+# Configure CORS
+CORS(app, resources={r"/stats": {"origins": "http://localhost:3000"}})
 
 
 def clear_output_directory():
@@ -30,41 +35,70 @@ scheduler.add_job(clear_output_directory, "cron", hour=0)
 scheduler.start()
 
 
+def create_zip(files):
+    """Create a temporary zip file and return its path."""
+    temp_dir = tempfile.mkdtemp()
+    zip_path = os.path.join(temp_dir, "output_svgs.zip")
+    with zipfile.ZipFile(zip_path, "w") as zipf:
+        for file in files:
+            zipf.write(file, os.path.basename(file))
+    return zip_path
+
+
 @app.route("/stats", methods=["POST"])
 def run_stats_notebook():
     try:
         stats_category = request.json["stats_category"]
-        identifier = request.json.get(
-            "identifier"
-        )  # What does this look like if it's not present? None? Answer: None
+        identifier = request.json.get("identifier")
 
         output_dir = f"./outputs/{stats_category}"
         if identifier:
             output_dir = f"{output_dir}/{identifier}"
 
-        # Check if output already exists to serve cached version
-        existing_svgs = glob.glob(f"{output_dir}/*.svg")
-        if existing_svgs:
-            return jsonify({"files": existing_svgs})
-
         # Define the input notebook path
         input_nb_path = "./statistics.ipynb"
 
-        with tempfile.NamedTemporaryFile(suffix=".ipynb") as temp_output:
-            output_nb_path = temp_output.name
+        # Only execute the notebook if the SVGs haven't been generated yet
+        existing_svgs = glob.glob(f"{output_dir}/*.svg")
+        if not existing_svgs:
+            with tempfile.NamedTemporaryFile(suffix=".ipynb") as temp_output:
+                output_nb_path = temp_output.name
 
-            # Execute the notebook with parameters
-            pm.execute_notebook(
-                input_nb_path,
-                output_nb_path,
-                parameters={"stats_category": stats_category, "identifier": identifier},
-            )
+                # Execute the notebook with parameters
+                pm.execute_notebook(
+                    input_nb_path,
+                    output_nb_path,
+                    parameters={
+                        "stats_category": stats_category,
+                        "identifier": identifier,
+                    },
+                )
 
-        logger.info("Successfully executed the notebook with parameters.")
+            logger.info("Successfully executed the notebook with parameters.")
 
-        # Collect the generated SVGs
-        generated_svgs = glob.glob(f"{output_dir}/*.svg")
-        return jsonify({"files": generated_svgs})
+            # Collect the newly generated SVGs
+            generated_svgs = glob.glob(f"{output_dir}/*.svg")
+        else:
+            # Use the already existing SVGs
+            generated_svgs = existing_svgs
+
+        # Sending the SVG files
+        if len(generated_svgs) == 1:
+            # Send a single SVG file
+            return send_file(generated_svgs[0], mimetype="image/svg+xml")
+        elif generated_svgs:
+            # Create a zip file with all SVGs
+            zip_file = create_zip(generated_svgs)
+
+            # Ensure the zip file is removed after sending
+            @after_this_request
+            def remove_file(response):
+                shutil.rmtree(os.path.dirname(zip_file))
+                return response
+
+            return send_file(zip_file, as_attachment=True)
+        else:
+            return jsonify({"error": "No SVG files generated"}), 404
     except Exception as e:
         logger.error(f"Error executing the notebook: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
