@@ -18,7 +18,8 @@ logger.addHandler(handler)
 app = Flask(__name__)
 
 # Configure CORS
-CORS(app, resources={r"/stats": {"origins": "http://localhost:3000"}})
+originURL = os.environ.get("FLASK_APP_ORIGIN_URL", "http://localhost:3000")
+CORS(app, resources={r"/stats": {"origins": [originURL, "http://localhost"]}})
 
 
 def clear_output_directory():
@@ -105,4 +106,4 @@ def run_stats_notebook():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=False, port=4000)  ## False for production
