@@ -20,8 +20,8 @@ logger.addHandler(handler)
 app = Flask(__name__)
 
 # Configure Cross-Origin Resource Sharing (CORS)
-originURL = os.environ.get("FLASK_APP_ORIGIN_URL", "http://localhost:3000")
-CORS(app, resources={r"/stats": {"origins": [originURL, "http://localhost"]}})
+originURL = "*"
+CORS(app, resources={r"/*": {"origins": originURL}})
 
 
 # Function to clear output directory
@@ -110,4 +110,5 @@ def run_stats_notebook():
 
 # Run the Flask app
 if __name__ == "__main__":
-    app.run(debug=False, port=4000)  # Set debug to False for production
+    logger.info("__name__ is set to __main__, running the Flask app locally.")
+    app.run(debug=False, port=4000)
