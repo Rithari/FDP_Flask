@@ -1,6 +1,8 @@
 # Statistics output
 outputs/*
 
+# Logs
+app.log.*
 
 ### Flask ###
 instance/*

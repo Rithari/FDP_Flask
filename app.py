@@ -10,18 +10,21 @@ import shutil
 import zipfile
 from flask_cors import CORS
 
-# Logging configuration
+# Configure logging for the application
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 handler = RotatingFileHandler("app.log", maxBytes=10000, backupCount=3)
 logger.addHandler(handler)
+
+# Create the Flask application instance
 app = Flask(__name__)
 
-# Configure CORS
+# Configure Cross-Origin Resource Sharing (CORS)
 originURL = os.environ.get("FLASK_APP_ORIGIN_URL", "http://localhost:3000")
 CORS(app, resources={r"/stats": {"origins": [originURL, "http://localhost"]}})
 
 
+# Function to clear output directory
 def clear_output_directory():
     output_dir = "./outputs"
     if os.path.exists(output_dir):
@@ -30,14 +33,14 @@ def clear_output_directory():
     logger.info("Cleared output directory.")
 
 
-# Scheduler to clear output directory once a day at midnight
+# Set up a scheduler to clear the output directory daily at midnight
 scheduler = BackgroundScheduler()
 scheduler.add_job(clear_output_directory, "cron", hour=0)
 scheduler.start()
 
 
+# Function to create a temporary zip file with the specified files
 def create_zip(files):
-    """Create a temporary zip file and return its path."""
     temp_dir = tempfile.mkdtemp()
     zip_path = os.path.join(temp_dir, "output_svgs.zip")
     with zipfile.ZipFile(zip_path, "w") as zipf:
@@ -46,12 +49,15 @@ def create_zip(files):
     return zip_path
 
 
+# Endpoint to run statistics notebook and return SVG or zip file
 @app.route("/stats", methods=["POST"])
 def run_stats_notebook():
     try:
+        # Extract parameters from the request
         stats_category = request.json["stats_category"]
         identifier = request.json.get("identifier")
 
+        # Define the output directory
         output_dir = f"./outputs/{stats_category}"
         if identifier:
             output_dir = f"{output_dir}/{identifier}"
@@ -59,13 +65,13 @@ def run_stats_notebook():
         # Define the input notebook path
         input_nb_path = "./statistics.ipynb"
 
-        # Only execute the notebook if the SVGs haven't been generated yet
+        # Execute the notebook if SVGs haven't been generated yet
         existing_svgs = glob.glob(f"{output_dir}/*.svg")
         if not existing_svgs:
             with tempfile.NamedTemporaryFile(suffix=".ipynb") as temp_output:
                 output_nb_path = temp_output.name
 
-                # Execute the notebook with parameters
+                # Execute the notebook with parameters using Papermill
                 pm.execute_notebook(
                     input_nb_path,
                     output_nb_path,
@@ -77,21 +83,18 @@ def run_stats_notebook():
 
             logger.info("Successfully executed the notebook with parameters.")
 
-            # Collect the newly generated SVGs
+            # Collect the generated SVGs
             generated_svgs = glob.glob(f"{output_dir}/*.svg")
         else:
-            # Use the already existing SVGs
+            # Use existing SVGs
             generated_svgs = existing_svgs
 
         # Sending the SVG files
         if len(generated_svgs) == 1:
-            # Send a single SVG file
             return send_file(generated_svgs[0], mimetype="image/svg+xml")
         elif generated_svgs:
-            # Create a zip file with all SVGs
             zip_file = create_zip(generated_svgs)
 
-            # Ensure the zip file is removed after sending
             @after_this_request
             def remove_file(response):
                 shutil.rmtree(os.path.dirname(zip_file))
@@ -105,5 +108,6 @@ def run_stats_notebook():
         return jsonify({"error": str(e)}), 500
 
 
+# Run the Flask app
 if __name__ == "__main__":
-    app.run(debug=False, port=4000)  ## False for production
+    app.run(debug=False, port=4000)  # Set debug to False for production
