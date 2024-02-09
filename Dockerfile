@@ -2,7 +2,7 @@
 FROM python:3.12.1-bookworm
 
 # Install gcc (if not already available in the Python image)
-RUN apt-get update && apt-get install -y gcc
+RUN apt-get update && apt-get install -y gcc gdal-bin libgdal-dev
 
 # Set the working directory in the container
 WORKDIR /app
